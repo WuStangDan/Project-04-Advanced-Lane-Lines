@@ -1,9 +1,11 @@
 # Project-04-Advanced-Lane-Lines
 
 
-## Calibrating the Camera
+## Calibrating the Camera and Undistorting the Images
 
 One of the calibration images that was a .png was converted to .jpg using an online converter. Also two of the images for some reason had an extra row and column of pixels that seemed to be pure noise added to the top and left side. This was removed when reading in the image.
+
+The camera was calibrated using the cv2.calibrateCamera function and the images were undistorted using the calibrated camera object and image points on all of the test images provided.
 
 ## Transform into Binary Image
 
@@ -68,11 +70,29 @@ The entire process from raw image to histogram with margin to final image with l
 
 Once the lane lines have been found, the histogram margins are then output by the function so they can be used in the next iteration of the function. This saves the function from having to recompute the historgram for each sliding window at every frame.
 
-When given this previous lane line information the function will calculate for the next frame which side of the window when using the old line line information (either the 80 pixels to the left or the 80 pixels to the right of the center) contains more pixels. The window will then be adjusted 5 pixels in that direction which will allow the window to follow the lane lines as they move without having to recompute the histogram. 
+When given this previous lane line information the function will calculate for the next frame which side of the window when using the old line line information (either the 80 pixels to the left or the 80 pixels to the right of the center) contains more pixels. The window will then be adjusted 5 pixels in that direction which will allow the window to follow the lane lines as they move without having to recompute the histogram. This not only increases speed of the calculation but also allow for error rejection as seen in the image below comparing the function with previous frame information vs one with no starting information.
+
+![Starting Info vs No Info](/screenshots/startinginfo.png)
 
 If at any point both the left or right side of the window contain 0 pixels passed from the thresholds (this indicates the window has lost the lane lines, the histogram will be recomputed for that section of the window and only for that lane line so that the lane line can be found again.
 
 This whole process is shown in the videos in the top right hand corner of the final project video.
 
-## Measuring Radius of Curvature 
+## Measuring Radius of Curvature
+
+The radius of curvature is measured by fitting a 2nd order polynomial to the lane line pixels identified using the find lane lines function. This polynomial is converted from the unit of pixels to meters by estimating the lane width and the length of a lane line on the perspective transformed image. Based on the perspective transform and knowning the average width of a US lane and the average lenght of a line line, it is estimated that in the y direction there are 3 meters for every 100 pixels and in the x direction there is 3.7 meters covered for every 800 pixels. The radius of curvature is estimated for the midpoint between the front of the car and the maximum distance the car is looking ahead.
+
+The center point of the car was determined to be the center point of the image based on measuring locations of distinct symmetrical markings on the hood.
+
+## Video Generation
+
+The generation of video just uses all the previously talked about functions that were meant to operate on still images and puts them in a function called process_image which takes video information one frame at a time. A class called Lines() is used to carry information over from one frame to the next. The polynomails which draw the estimated lane line position on the road, the radius of curvature, and the distance from center, are all put through a 5 frame moving average filter before being displayed on the video to help reduce the impact of noise.
+
+The window information from find lane lines function is also continously fed forward so that every frame calculation has starting point information.
+
+The final project video can be seen in the repository under the name "total-pipeline.mp4".
+
+## Future Improvement
+
+One area of future improvement that could be implemented to allow for better detection of the lane lines would be having the distance the moving window in the find lane lines function moves be a function of the pixel count between the left and right side of the window. There is one point in the project video where the top moving window (farthest from the car) in the left lane is behind the lane by about a second due to a rapid change in the position of the lane lines. This would better help the sliding window keep up with the lane lines while they move.
 
