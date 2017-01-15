@@ -7,17 +7,16 @@ One of the calibration images that was a .png was converted to .jpg using an onl
 
 ## Transform into Binary Image
 
-### Color Threshold
+### RGB Color Threshold
+Assume all lane lines are either yellow or white. Pure white is RGB = (255, 255, 255) and pure yellow is RGB = (255,255,0). So really a high threshold on both (or either) of the R AND the G should force the remaining pixels to either be yellow or white. This could remove some noise that still happens to make it past the the other thresholds that will be used.
 
-#### RGB
+Thresholding for yellow and white colors only seems to work on dark pavement. On the light pavement colors it doesn't really pick anything up until the very high thresholds which would remove other information. Please see the accompanying pictures in the color transform section.
 
-Assume all lane lines are either yellow or white. Pure white is RGB = (255, 255, 255) and pure yellow is RGB = (255,255,0). So really a high threshold on both the R AND the G should force the remaining pixels to either be yellow or white.
+However using a low threshold (like 90 or less) just on the red threshold could be used as an AND with other transforms since it could potentially help on the dark pavement sections and essentially have no effect on the light pavement sections.
 
-Thresholding for yellow and white colors only seems to work on dark pavement. On the light pavement colors it doesn't really pick anything up until the very high thresholds which remove other information.
 
-However using a low threshold (like 130) just on the red threshold could be used as an AND with other transforms since it could potentially help on the dark pavement sections and essentially have no effect on the light pavement sections.
 
-#### HLS
+### HLS Color Threshold
 
 Saturation channel seems to clearly be the best but still am not happy with the results on their own. Looking at the last photo in the bottom right (see html notebook) you can see that on the white pavement section the right lane lines hardly shows up at all.
 
@@ -28,6 +27,52 @@ For saturation a minimum threshold of 100 seems to clearly identify the lane lin
 
 The most difficult part of the perspective transform is selecting how far up you should try to look for the lane lines. However the perspective transform really helps in visualizing not only where the horizon is (and thus that above this point there is no longer any lane line data) but also it helps finding the point where there isn't enough data (because the resolution of the camera) to make out small details of the lane lines. By setting the top perspective transform source points far away, you can see how blurry it is and how hard it is to make out the lane lines at points that are just before the horizon. I used this blurryness as a rough guide for how far up the road to look.
 
-Based on the plots seen in the HTML under the heading of perspective transform, it can be seen that looking any higher than pixel 450, the image is so blurry that there is almost no discernable information in it.
+Based on the plots seen in the HTML under the heading of perspective transform, it can be seen that looking any higher than pixel 465 (thus top cords of 460 or less), the image is so blurry at the top that there is almost no discernable information in it.
 
-### Gradient Transform
+### Gradient Threshold
+
+A gradient output that is a combination of mutliple thresholds (absolute, magnitude, direction) is required to help find the lane lines in an image. While the output doesn't have to be perfect, because I will end up combining what I find with the HLS and RGB color thresholds, it does have to be fairly good at seeing the lane lines since it is most likely that this threshold will do most of the work.
+
+Once I tune the parameters for a very good gradient that works on all of the images (1,4,5,6) I'll then fine tune the parameters so it can work better when I combine it with the HLS threshold and the R color threshold.
+
+No amount of fine tuning seems to have the y gradient yield any information that is not in the x gradient. This would negate any benefit from using a y gradient in an AND with the x gradient. Also the y gradient is far too noisy for things outside the lane lines to be any use as a standalone addition as an OR. So I'm not going to use the y gradient for the final gradient combination.
+
+The magnitude direction gradient on its own is very good at finding the lane lines however, it also pickups a great deal of noise. My main goal when selecting a direction gradient is to have it pick up the lane lines, but not the pieces of noise that can be seen in the magnitude gradient.
+
+In the picture below it can be seen that the direction gardient picks up almost everything in the image, except for the noise seen in pixels 0-100 in the Y axis of the magnitude gradient. This means that using the direction gradient in an AND operator with the magnitude gradient should help filter out most of its noise.
+
+![Magnitude and Direction Gradient](/screenshots/mag-dir.png)
+
+### Combining Color, HLS, and Gradient
+
+The first threshold I performed only on the red color channel I believe is still beneficial. A very low threshold (easily passed) will be used that will essentially filter out any object that doesn't have a strong red component (which the white and yellow lines will have plenty of). Thus I will use the red color channel threshold as an AND with both the HLS and gradient.
+
+The HLS and gradient aspects will be used in an OR operator since they both have different strengths. The gradient is really good at dark road surfaces (where there is a large difference between the light lines and the dark road) and the HLS is really good at picking up any deep colors, regardless of the light or darkness of the road surface. However inorder to avoid most of the noise the HLS threshold has to be set quite aggressive, which is why the gardient threshold is needed.
+
+Looking at test image 5 (shown below), my decision to include the red threshold as an AND operator on both saturation and gradient really pays off. As seen in the saturation threshold for test image 5, there is a great deal of noise on the Y axis around 300 pixels which isn't included in the final combined binary image. This is because the very weak red threshold (which allows almost everything in the image) clearly doesn't allow this dark shadow to pass through since it contains a very low red channel number.
+
+Also using both gradient and saturation can be seen as necessary since there are some images where the saturation threshold is contributing almost all lane line information and there are other images where the majority of the lane line information is caputred by the gradient.
+
+![Combined](/screenshots/combined.png)
+
+## Estimate Lane Line Pixels
+
+The find_lane_lines function takes in a undistorted image and outputs an image array where the pixels identified as belonging to the left lane are given a value of 1 and the right lane pixels are given a 2. This is accomplished by running the undistorted image through the perspective transform and the combined color, HLS, and gradient thresholds talked about in the previous section. This resulting binary image contains all pixels in the image that meet the various thresholds.
+
+When there is no previous lane line information feed into the function, a sliding window histogram approach is used to find the horizontal location of where there are the most pixels for a given vertical window. The function is able to divide the image into any number of vertical slices but I found that 4 consistently yielded the best results. Once the horizontal location of the most pixels is found for each section (and one for each lane line) the max value is given a +- 80 pixel margin that within which, all of the pixels passed through the combined threshold are indicated as being part of either the left or right lane line.
+
+The entire process from raw image to histogram with margin to final image with lef tand right lane lines can be seen below.
+
+![Finding Left and Right Lane Lines](/screenshots/lanelines.png)
+
+
+Once the lane lines have been found, the histogram margins are then output by the function so they can be used in the next iteration of the function. This saves the function from having to recompute the historgram for each sliding window at every frame.
+
+When given this previous lane line information the function will calculate for the next frame which side of the window when using the old line line information (either the 80 pixels to the left or the 80 pixels to the right of the center) contains more pixels. The window will then be adjusted 5 pixels in that direction which will allow the window to follow the lane lines as they move without having to recompute the histogram. 
+
+If at any point both the left or right side of the window contain 0 pixels passed from the thresholds (this indicates the window has lost the lane lines, the histogram will be recomputed for that section of the window and only for that lane line so that the lane line can be found again.
+
+This whole process is shown in the videos in the top right hand corner of the final project video.
+
+## Measuring Radius of Curvature 
+
